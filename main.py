@@ -1,8 +1,10 @@
-import pygame as pag
-import Utilidades as uti
-import Utilidades_pygame as uti_pag
+import time
 import random
 import configparser
+import pygame as pag
+import Utilidades as uti
+from threading import Thread
+import Utilidades_pygame as uti_pag
 
 from Utilidades_pygame.base_app_class import Base_class
 
@@ -15,11 +17,19 @@ configuraciones.read("config.ini")
 TILE_SIZE = int(configuraciones["TILE"]["TILE_SIZE"])
 TILE_NUM = int(configuraciones["TILE"]["TILE_NUM"])
 MINE_NUM = int(configuraciones["TILE"]["MINE_NUM"])
+ANIMATION_SPEED = int(configuraciones["ANIMATION"]["ANIMATION_SPEED"])
+sleep_time = 0.1/ANIMATION_SPEED if ANIMATION_SPEED > 0 else 0
 
 
 class Buscaminas(Base_class):
     def otras_variables(self):
         self.draw_mode = "always"
+
+        # Variables mas normales
+        self.mines_pinged = 0
+        self.tiles_restantes = TILE_NUM*TILE_NUM
+
+
         self.objs: list[Tile] = []
         self.board = []
         self.tilesheet = pag.transform.scale(pag.image.load("./tileset.jpg"),(TILE_SIZE*4, TILE_SIZE*3))
@@ -38,17 +48,25 @@ class Buscaminas(Base_class):
 
         self.generate_board()
         self.generate_mines()
-
-    def generate_board(self):
-        for x in range(TILE_NUM):
-            l = []
-            for y in range(TILE_NUM):
-                l.append(Tile(pag.Vector2(x*TILE_SIZE, y*TILE_SIZE)))
-            self.board.append(l.copy())
-            l.clear()
             
-        
-    def draw_after(self, actual_screen):
+    def generate_objs(self):
+        self.main_text_win = uti_pag.Text("YOU WIN", 24, None, (-5000,-5000), "center", "green", True, "black", -1, 20)
+        self.main_text_Edouard_sandoval = uti_pag.Text("Edouard Sandoval", 24, None, self.ventana_rect.bottomright, "bottomright","black")
+
+        self.main_text_Edouard_sandoval.lista_text[0].set_alpha(128)
+
+        # self.surf_marca_agua = pag.Surface((TILE_SIZE//2, TILE_SIZE//4), pag.SRCALPHA)
+        # self.surf_marca_agua.fill((0,0,0,0))
+        # self.surf_marca_agua.set_alpha(128)
+        # self.main_text_Edouard_sandoval.draw(self.surf_marca_agua)
+
+        self.lists_screens[self.inicial_screen]["draw"] = [
+            self.main_text_win,
+            self.main_text_Edouard_sandoval
+        ]
+        self.lists_screens[self.inicial_screen]["update"] =  self.lists_screens[self.inicial_screen]["draw"]
+
+    def draw_before(self, actual_screen):
         for y in self.board:
             for x in y:
                 self.ventana.blit(self.tilesheet, x.position, self.imgs[x.state])
@@ -66,19 +84,38 @@ class Buscaminas(Base_class):
                         if evento.button == 3:
                             if x.state == "idle":
                                 x.state = "pinged"
+                                if x.mine:
+                                    self.mines_pinged += 1
                             elif x.state == "pinged":
                                 x.state = "idle"
+                                if x.mine:
+                                    self.mines_pinged -= 1
                         elif evento.button == 1:
                             if x.mine:
                                 x.state = "mine"
                                 self.running = False
-                            elif x.state != "idle":
-                                pass
-                            else:
+                            elif x.state == "idle":
                                 self.set_adjacent_neightbors(i, i2)
 
+    def update(self, actual_screen):
+        if self.mines_pinged == MINE_NUM or self.tiles_restantes == MINE_NUM:
+            self.win()
 
-    def set_adjacent_neightbors(self, x, y):
+    # ---------------- Funciones ----------------
+    def win(self):
+        # self.running = False
+        self.main_text_win.pos = self.ventana_rect.center
+
+
+    def generate_board(self):
+        for x in range(TILE_NUM):
+            l = []
+            for y in range(TILE_NUM):
+                l.append(Tile(pag.Vector2(x*TILE_SIZE, y*TILE_SIZE)))
+            self.board.append(l.copy())
+            l.clear()
+    def set_adjacent_neightbors(self, x, y, sleep=0):
+        time.sleep(sleep)
         if self.board[x][y].state != "idle":
             return
         self.board[x][y].neightbors = 0
@@ -97,20 +134,13 @@ class Buscaminas(Base_class):
                         continue
                     if x+x2 < 0 or x+x2 > TILE_NUM-1 or y+y2 < 0 or y+y2 > TILE_NUM-1:
                         continue
-                    self.set_adjacent_neightbors(x+x2, y+y2)
+                    if sleep_time > 0:
+                        Thread(target=self.set_adjacent_neightbors, args=(x+x2, y+y2,sleep_time),daemon=True).start()
+                    else:
+                        self.set_adjacent_neightbors(x+x2, y+y2, sleep_time)
         else:
             self.board[x][y].state = f"num{self.board[x][y].neightbors}"
-
-    def adyacent_neightbors(self, x, y):
-        neightbors = 0
-        for i in range(-1, 2):
-            for j in range(-1, 2):
-                if i == 0 and j == 0:
-                    continue
-                if x+i < 0 or x+i > TILE_NUM-1 or y+j < 0 or y+j > TILE_NUM-1:
-                    continue
-                neightbors += self.board[x+i][y+j].mine == True
-        return neightbors
+        self.tiles_restantes -= 1
     
     def generate_mines(self):
         for x in range(MINE_NUM):
@@ -132,6 +162,8 @@ if __name__ == "__main__":
             resolution=resolution,
             min_resolution=(resolution),
             scaled=False,
-            window_resize=False
+            window_resize=False,
+            version="1.0",
+            icon="./tileset.jpg"
         )
     )
