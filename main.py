@@ -1,6 +1,7 @@
 import time
 import random
 import configparser
+from turtle import delay
 import pygame as pag
 import Utilidades as uti
 from threading import Thread
@@ -9,6 +10,7 @@ import Utilidades_pygame as uti_pag
 from Utilidades_pygame.base_app_class import Base_class
 
 from Tile import Tile
+from Animator import Animator
 
 
 configuraciones = configparser.ConfigParser()
@@ -17,8 +19,9 @@ configuraciones.read("config.ini")
 TILE_SIZE = int(configuraciones["TILE"]["TILE_SIZE"])
 TILE_NUM = int(configuraciones["TILE"]["TILE_NUM"])
 MINE_NUM = int(configuraciones["TILE"]["MINE_NUM"])
-ANIMATION_SPEED = int(configuraciones["ANIMATION"]["ANIMATION_SPEED"])
-sleep_time = 0.1/ANIMATION_SPEED if ANIMATION_SPEED > 0 else 0
+ANIMATION_SPEED = float(configuraciones["ANIMATION"]["ANIMATION_SPEED"])
+sleep_time = 1 / ANIMATION_SPEED if ANIMATION_SPEED > 0 else 0
+ANIMATION_TYPE = int(configuraciones["ANIMATION"]["ANIMATION_TYPE"])
 
 
 class Buscaminas(Base_class):
@@ -45,6 +48,11 @@ class Buscaminas(Base_class):
                 self.imgs[f"num{n}"] = pag.Rect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE)
                 n += 1
         del n
+
+        self.Animator = Animator()
+        self.tiles_for_animation = []
+        self.init_tile_animation = (TILE_SIZE, TILE_SIZE)
+        self.tipo_animacion = ANIMATION_TYPE
 
         self.generate_board()
         self.generate_mines()
@@ -95,17 +103,41 @@ class Buscaminas(Base_class):
                                 x.state = "mine"
                                 self.running = False
                             elif x.state == "idle":
-                                self.set_adjacent_neightbors(i, i2)
+                                self.init_tile_animation = x.position
+                                self.set_adjacent_neightbors(i, i2,0)
+                                self.animate_tiles(self.tipo_animacion)
 
     def update(self, actual_screen):
         if self.mines_pinged == MINE_NUM or self.tiles_restantes == MINE_NUM:
             self.win()
+
+        self.Animator.update(self.delta_time.dt)
+        
+        
 
     # ---------------- Funciones ----------------
     def win(self):
         # self.running = False
         self.main_text_win.pos = self.ventana_rect.center
 
+    def animate_tiles(self, tipo):
+        if tipo == 1 or tipo == 2:
+            # Sort tiles by depth to ensure proper spreading animation
+            self.tiles_for_animation.sort(key=lambda tile: tile[3])
+            for tilex, tiley, tilestate, depth in self.tiles_for_animation:
+                print(tilex, tiley, tilestate, depth)
+                if tipo == 1:
+                    delay = sleep_time * (uti.Hipotenuza(self.init_tile_animation,pag.Vector2(self.board[tilex][tiley].position))/TILE_SIZE)
+                else:
+                    delay = sleep_time * depth
+                self.Animator.add_animation(
+                    lambda x=tilex, y=tiley, state=tilestate: setattr(self.board[x][y], "state", state),
+                    delay=delay,
+                )
+            self.tiles_for_animation = []
+        if tipo == 0:
+            for tilex, tiley, tilestate, depth in self.tiles_for_animation:
+                self.board[tilex][tiley].state = tilestate
 
     def generate_board(self):
         for x in range(TILE_NUM):
@@ -114,10 +146,12 @@ class Buscaminas(Base_class):
                 l.append(Tile(pag.Vector2(x*TILE_SIZE, y*TILE_SIZE)))
             self.board.append(l.copy())
             l.clear()
-    def set_adjacent_neightbors(self, x, y, sleep=0):
-        time.sleep(sleep)
-        if self.board[x][y].state != "idle":
+
+    def set_adjacent_neightbors(self, x, y, depth):
+        if self.board[x][y].state != "idle" or self.board[x][y].is_revealed:
             return
+        # current_level = (x,y,depth)
+        # while 
         self.board[x][y].neightbors = 0
         for i in range(-1, 2):
             for j in range(-1, 2):
@@ -126,20 +160,18 @@ class Buscaminas(Base_class):
                 if x+i < 0 or x+i > TILE_NUM-1 or y+j < 0 or y+j > TILE_NUM-1:
                     continue
                 self.board[x][y].neightbors += 1 if self.board[x+i][y+j].mine == True else 0
+        self.board[x][y].is_revealed = True
         if self.board[x][y].neightbors == 0:
-            self.board[x][y].state = "empty"
+            self.tiles_for_animation.append((x, y, "empty", depth))
             for x2 in range(-1, 2):
                 for y2 in range(-1, 2):
-                    if x2 == 0 and j == 0:
+                    if x2 == 0 and y2 == 0:
                         continue
                     if x+x2 < 0 or x+x2 > TILE_NUM-1 or y+y2 < 0 or y+y2 > TILE_NUM-1:
                         continue
-                    if sleep_time > 0:
-                        Thread(target=self.set_adjacent_neightbors, args=(x+x2, y+y2,sleep_time),daemon=True).start()
-                    else:
-                        self.set_adjacent_neightbors(x+x2, y+y2, sleep_time)
+                    self.set_adjacent_neightbors(x+x2, y+y2, depth+1)
         else:
-            self.board[x][y].state = f"num{self.board[x][y].neightbors}"
+            self.tiles_for_animation.append((x, y, f"num{self.board[x][y].neightbors}", depth))
         self.tiles_restantes -= 1
     
     def generate_mines(self):
@@ -163,7 +195,8 @@ if __name__ == "__main__":
             min_resolution=(resolution),
             scaled=False,
             window_resize=False,
-            version="1.0",
-            icon="./tileset.jpg"
+            version="1.1",
+            icon="./tileset.jpg",
+            max_fps=60
         )
     )

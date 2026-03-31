@@ -7,3 +7,4 @@ class Tile:
         self.state = "idle"
         self.mine = mine
         self.neightbors = 0
+        self.is_revealed = False
